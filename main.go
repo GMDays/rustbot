@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -50,6 +51,23 @@ type RustServer struct {
 	QueueLine             int
 }
 
+type ApexStats struct {
+	Results []struct {
+        Aid      string `json:"aid"`
+        Name     string `json:"name"`
+        Platform string `json:"platform"`
+        Avatar   string `json:"avatar"`
+        Legend   string `json:"legend"`
+        Level    string `json:"level"`
+        Kills    string `json:"kills"`
+    } `json:"results"`
+    Totalresults int `json:"totalresults"`
+}
+
+type DiscordMessageEmbed struct {
+	*discordgo.MessageEmbed
+}
+
 func main() {
 	// Lookup token from ENV
 	Token := os.Getenv("DISCORD_TOKEN")
@@ -86,8 +104,56 @@ func main() {
 }
 
 func incomingMessageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m == nil {
+		log.Fatal("Something wrong with your Message bruh.")
+		return
+	}
 
-	switch m.Content {
+	// var message [2]string
+	// var playerName string
+	var playerName string
+	var message []string
+	message = strings.Split(m.Content, " ")
+	if len(message) > 1 {
+		playerName = message[1]
+	}
+
+	switch message[0] {
+	case "!apex":
+		{
+			url := "https://apextab.com/api/search.php?platform=pc&search=" + playerName
+			res, err := http.Get(url)
+			if err != nil {
+				fmt.Println("url failed")
+				log.Fatal(err)
+			}
+
+			info, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				fmt.Println("ioutil failed")
+				log.Fatal(err)
+			}
+
+			res.Body.Close()
+
+			var apexInfo ApexStats			
+			json.Unmarshal(info, &apexInfo)
+			fmt.Println(apexInfo)		
+
+			embed := NewDiscordMsgEmbed().
+			    SetTitle(playerName + " these are your statistics you filthy casual").
+			    AddField("Kills: ", apexInfo.Results[0].Kills).
+			    AddField("Legend:", apexInfo.Results[0].Legend).
+			    AddField("Level:", apexInfo.Results[0].Level).
+			    SetDescription("Test Description").
+			    SetImage("https://danbooru.donmai.us/data/__lifeline_apex_legends_drawn_by_charles_vaughn__ffe4833e5c193dc7de5a774cd27f4624.jpg").
+			    SetThumbnail("https://danbooru.donmai.us/data/__lifeline_apex_legends_drawn_by_charles_vaughn__ffe4833e5c193dc7de5a774cd27f4624.jpg").
+			    SetAuthor(discordgo.MessageEmbedAuthor{}.Name).			  
+			    SetColor(0x00ff00).MessageEmbed
+
+			fmt.Println(embed)
+			s.ChannelMessageSendEmbed(m.ChannelID, embed)
+		}
 	case "!lowpop":
 		{
 			// this just checks 50 lowpop
@@ -193,4 +259,157 @@ func checkQueue(c string, m string, r *RustServer) {
 	} else {
 		r.Queue = false
 	}
+}
+
+func NewDiscordMsgEmbed() *DiscordMessageEmbed {
+	return &DiscordMessageEmbed{&discordgo.MessageEmbed{}}
+}
+
+func (e *DiscordMessageEmbed) SetTitle (title string) *DiscordMessageEmbed {
+	e.Title = title
+	return e
+}
+
+func (e *DiscordMessageEmbed) SetDescription (description string) *DiscordMessageEmbed {
+	if len(description) > 2048 {
+		description = description[:2048]
+	}
+	e.Description = description
+	return e
+}
+
+func (e *DiscordMessageEmbed) AddField(name, value string) *DiscordMessageEmbed {
+	if len(value) > 1024 {
+		value = value[:1024]
+	}
+
+	if len(name) > 1024 {
+		name = name[:1024]
+	}
+
+	e.Fields = append(e.Fields, &discordgo.MessageEmbedField{
+		Name:  name,
+		Value: value,
+	})
+
+	return e
+
+}
+
+func (e *DiscordMessageEmbed) SetFooter(args ...string) *DiscordMessageEmbed {
+	iconURL := ""
+	text := ""
+	proxyURL := ""
+
+	switch {
+	case len(args) > 2:
+		proxyURL = args[2]
+		fallthrough
+	case len(args) > 1:
+		iconURL = args[1]
+		fallthrough
+	case len(args) > 0:
+		text = args[0]
+	case len(args) == 0:
+		return e
+	}
+
+	e.Footer = &discordgo.MessageEmbedFooter{
+		IconURL:      iconURL,
+		Text:         text,
+		ProxyIconURL: proxyURL,
+	}
+
+	return e
+}
+
+func (e *DiscordMessageEmbed) SetImage(args ...string) *DiscordMessageEmbed {
+	var URL string
+	var proxyURL string
+
+	if len(args) == 0 {
+		return e
+	}
+	if len(args) > 0 {
+		URL = args[0]
+	}
+	if len(args) > 1 {
+		proxyURL = args[1]
+	}
+	e.Image = &discordgo.MessageEmbedImage{
+		URL:      URL,
+		ProxyURL: proxyURL,
+	}
+	return e
+}
+
+func (e *DiscordMessageEmbed) SetThumbnail(args ...string) *DiscordMessageEmbed {
+	var URL string
+	var proxyURL string
+
+	if len(args) == 0 {
+		return e
+	}
+	if len(args) > 0 {
+		URL = args[0]
+	}
+	if len(args) > 1 {
+		proxyURL = args[1]
+	}
+	e.Thumbnail = &discordgo.MessageEmbedThumbnail{
+		URL:      URL,
+		ProxyURL: proxyURL,
+	}
+	return e
+}
+
+func (e *DiscordMessageEmbed) SetAuthor(args ...string) *DiscordMessageEmbed {
+	var (
+		name     string
+		iconURL  string
+		URL      string
+		proxyURL string
+	)
+
+	if len(args) == 0 {
+		return e
+	}
+	if len(args) > 0 {
+		name = args[0]
+	}
+	if len(args) > 1 {
+		iconURL = args[1]
+	}
+	if len(args) > 2 {
+		URL = args[2]
+	}
+	if len(args) > 3 {
+		proxyURL = args[3]
+	}
+
+	e.Author = &discordgo.MessageEmbedAuthor{
+		Name:         name,
+		IconURL:      iconURL,
+		URL:          URL,
+		ProxyIconURL: proxyURL,
+	}
+
+	return e
+}
+
+func (e *DiscordMessageEmbed) SetURL(URL string) *DiscordMessageEmbed {
+	e.URL = URL
+	return e
+}
+
+func (e *DiscordMessageEmbed) SetColor(clr int) *DiscordMessageEmbed {
+	e.Color = clr
+	return e
+}
+
+func (e *DiscordMessageEmbed) InlineAllFields() *DiscordMessageEmbed {
+	for _, v := range e.Fields {
+		v.Inline = true
+	}
+	return e
 }
